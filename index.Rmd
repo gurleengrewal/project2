@@ -46,92 +46,301 @@ class_diag <- function(score, truth, positive, cutoff=.5){
 
 # Mining, Classification, Prediction
 
-## Name and EID here
+## Gurleen Grewal, gkg422
+### Introduction
 
-### Introduction 
+I picked a dataset from https://vincentarelbundock.github.io/Rdatasets/datasets.html. The dataset, “Clothing,” includes information about 60 random customers who shop at a retail store.  This is a dataframe with 60 observations on the following 8 variables. This dataframe contains the variables, ID, which is the ID case; Amount, which is the	net dollar amount spent by customers in their latest purchase from this retailer; Recency, which represents the	number of months since the last purchase;Freq12 is the	number of purchases in the last 12 months; Dollar12 is the  dollar amount of purchases in the last 12 months; Freq24	is the number of purchases in the last 24 months; Dollar24 is the dollar amount of purchases in the last 24 months; Card is the binary variable which represents	1 for customers who have a private-label credit card with the retailer, 0 if not. This dataset is contained in the “Stat2Data” package.
 
-Paragraph or two introducing your datasets and variables, why they are interesting to you, etc. See instructions for more information
+I found this dataset interesting since it includes a range of variables that can help predict a person's spending habits and what influences those spending habits. Working in retail for the last 3 years has made this project very interesting for me. It can also help me predict and analyze my spending habits and make me budget better.
+
+In this dataset, I ended up removing the "recency" variable which I thought was not valuable for analyzing the results of this dataset.
 
 ```{R}
 library(tidyverse)
-# read your datasets in here, e.g., with read_csv()
-
-# if your dataset needs tidying, do so here
-
-# any other code here
+clothing <- read_csv(file="Clothing.csv")
+newclothes <- clothing  %>% select(-Recency, -X1) %>% na.omit()
 ```
 
 ### Cluster Analysis
 
 ```{R}
 library(cluster)
-# clustering code here
+library(ggplot2)
+library(GGally)
+
+newclothes %>% ggplot() + geom_point(aes(Freq12, Dollar24))
+
+cormat <- newclothes %>% select_if(is.numeric) %>% cor(use = "pair")
+tidycor <- cormat %>% as.data.frame %>% rownames_to_column("var1") %>% 
+    pivot_longer(-1, names_to = "var2", values_to = "correlation")
+tidycor %>% ggplot(aes(var1, var2, fill = correlation)) + 
+    geom_tile() + scale_fill_gradient2(low = "pink", 
+    mid = "white", high = "red") + geom_text(aes(label = round(correlation, 
+    2)), color = "black", size = 4) + theme(axis.text.x = element_text(angle = 90, 
+    hjust = 1)) + coord_fixed()
+
+wss <- vector()
+for (i in 1:10) {
+    temp <- newclothes %>% select(Freq12, Dollar24) %>% kmeans(i)
+    wss[i] <- temp$tot.withinss
+}
+clust_dat <- newclothes %>% dplyr::select(Freq12, Dollar24)
+
+sil_width <- vector()
+for (i in 2:10) {
+    kms <- kmeans(clust_dat, centers = i)  #compute k-means solution for each k
+    sil <- silhouette(kms$cluster, dist(clust_dat))  #get sil widths
+    sil_width[i] <- mean(sil[, 3])  #take averages (higher is better)
+}
+ggplot() + geom_line(aes(x = 1:10, y = sil_width)) + scale_x_continuous(name = "k", 
+    breaks = 1:10)
+
+pam1 <- clust_dat %>% pam(k = 2)
+pam1
+
+pamclust <- clust_dat %>% mutate(cluster = as.factor(pam1$clustering))
+pamclust %>% ggplot(aes(Freq12, Dollar24, color = cluster)) + 
+    geom_point()
+
+pam1$silinfo$avg.width
+
+
+#CLustering with three or more variables
+
+new3 <- newclothes %>% select(Freq12, Freq24, Dollar12, Dollar24) %>% 
+    as.data.frame() %>%na.omit()
+pam2 <- new3 %>% pam(2)
+pam2
+
+new3 <- new3 %>% mutate(cluster = as.factor(pam2$clustering))
+ggplot(new3, aes(x = Freq12, y = Dollar24, color = cluster)) + 
+    geom_point()
+
+library(GGally)
+ggpairs(new3,columns=4:5, aes(color = cluster))
+
 ```
 
-Discussion of clustering here
-    
+Dollar24 and Amount have the highest positive correlation of 0.93 and Amount and Freq12 have the lowest frequency. 
+I also computed the silhouette width by plotting a silhouette graph and that there should be clusters. By looking at Freq12 and Dollar24 variables, I wanted to know whether purchase frequency is directly related to Dollar24 or not and the strength of the correlation between them. 
+The silhouette width was found to be 0.929 which means that a strong structure was found.
     
 ### Dimensionality Reduction with PCA
 
 ```{R}
-# PCA code here
+# 
+clothing
+var1 <- newclothes %>% select(Freq12, Freq24, Dollar12, Dollar24) %>% as.data.frame()
+var1 <- data.frame(scale(var1))  #scaling data
+
+
+pca1 <- prcomp(var1, center = T, scale = T)
+summary(pca1)
+
+var1 %>% cor
+cloth_pca <- princomp(var1)
+
+clothdf <- data.frame(PC1 = cloth_pca$scores[, 1], PC2 = cloth_pca$scores[, 
+    2])
+ggplot(clothdf, aes(PC1, PC2)) + geom_point()
+
 ```
 
-Discussions of PCA here. 
+We picked PC1 and PC2 and made a scatter plot using those PCs. The points do not look randomly scattered. It looks like there is a positive linear relationship between PC1 and PC2 
+The standard deviation of PC1 is 1.6440 with a variance of 0.6757, and PC2's standard deviation was 1.0124 with a variance of 0.2562. 
 
 ###  Linear Classifier
 
 ```{R}
-# linear classifier code here
+# 
+y <- newclothes$Card
+x <- newclothes$Freq12
+
+y_hat <- sample(c("0", "1"), size = length(y), replace = T)
+newclothes %>% select(Freq12, Card) %>% mutate(predict = y_hat) %>% 
+    head
+
+mean(y == y_hat)
+
+ggplot(data.frame(x, y), aes(x)) + geom_density(aes(fill = y), 
+    alpha = 0.5)
+
+ggplot(data.frame(x, y_hat), aes(x)) + geom_density(aes(fill = y_hat), 
+    alpha = 0.5)
+
+#confusion matrix
+
+table(actual = y, predicted = y_hat) %>% addmargins
+
+actual <- c("problem", rep("no problem", 999))
+predicted <- rep("no problem", 1000)
+TPR <- mean(predicted[actual == "problem"] == "problem")
+TNR <- mean(predicted[actual == "no problem"] == "no problem")
+(TPR + TNR)/2
+
+n_distinct(newclothes$Freq12)
+
+F1 <- function(y, y_hat, positive) {
+    sensitivity <- mean(y_hat[y == positive] == positive)
+    precision <- mean(y[y_hat == positive] == positive)
+    2 * (sensitivity * precision)/(sensitivity + precision)
+}
+F1(y, y_hat, "1")
+
+F1score <- vector()
+cutoff <- 1:10
+for (i in cutoff) {
+    y_hat <- ifelse(x > i, "1", "0")
+    F1score[i] <- F1(y_hat, y, "1")
+}
+qplot(y = F1score) + geom_line() + scale_x_continuous(breaks = 1:10)
+
+
+#Binary classification
+
+class_diag(score = x, truth = y, positive = "1", cutoff = 6)
+
+#Linear Classification
+
+fit <- lm(Card ~ Freq12, data = newclothes)
+score <- predict(fit)
+score %>% round(3)
+
+newclothes %>% mutate(score = score) %>% ggplot(aes(Freq12, Card)) + 
+    geom_point(aes(color = score > 0.5)) + geom_smooth(method = "lm", 
+    se = F) + ylim(0, 1) + geom_hline(yintercept = 0.5, lty = 2)
+
+ #predicting a binary variable (response) from all of the numeric variables in my dataset
+allvar <- newclothes %>% select(Card, Freq12, Freq24, Dollar12, Amount, ID, 
+    Dollar24)
+fit <- glm(Card ~ ., data = allvar , family = "binomial")
+score <- predict(fit, type = "response")
+class_diag(score, newclothes$Card, positive = 1)
+
 ```
 
-```{R}
-# cross-validation of linear classifier here
-```
-
-Discussion here
+We plotted a density graph of the "Card" variable. The F1 score was calculated to be 0.6316 which means there is little difference between the spending of customers who have a store credit card vs the customers who do not have a store credit card. When plotted the F1 plot, we found the cutoff to be around 6.
+The AUC of binary classification was 0.89 which means the AUC is good. It is almost at the cutoff of being a great AUC. This let's us summarize the sensitivity and specificity at the same time. 
 
 ### Non-Parametric Classifier
 
 ```{R}
 library(caret)
-# non-parametric classifier code here
-```
+knn_fit <- knn3(Card == 1 ~ ., data = allvar)
+y_hat_knn <- predict(knn_fit, allvar)
+y_hat_knn
 
+class_diag(y_hat_knn[, 2], allvar$Card, positive = 1)
+
+#K-fold CV
+
+set.seed(312)
+k = 10  #choose number of folds
+data <- allvar[sample(nrow(allvar)), ] #randomly order rows
+folds <- cut(seq(1:nrow(allvar)), breaks = k, labels = F)  #create 10 folds
+diags <- NULL
+for (i in 1:k) {
+    ## Create training and test sets
+    train <- data[folds != i, ]
+    test <- data[folds == i, ]
+    truth <- test$Card
+    ## Train model on training set
+    fit <- glm(Card ~ ., data = allvar, family = "binomial")
+    probs <- predict(fit, newdata = test, type = "response")
+    ## Test model on test set (save all k results)
+    diags <- rbind(diags, class_diag(probs, truth, positive = 1))
+}
+summarize_all(diags, mean)
+```
+The AUC using the K-fold CV is 0.849 and the AUC using the KNN model is 0.94. The AUC predicted by the KNN model is stronger than the one predicted by the K-fold CV model. 
 ```{R}
 # cross-validation of np classifier here
-```
 
-Discussion
+k = 10  #choose number of folds
+data <- allvar[sample(nrow(allvar)), ]  #randomly order rows
+folds <- cut(seq(1:nrow(allvar)), breaks = k, labels = F)  #create 10 folds
+diags <- NULL
+for (i in 1:k) {
+    ## Create training and test sets
+    train <- data[folds != i, ]
+    test <- data[folds == i, ]
+    truth <- test$Card
+    ## Train model on training set
+    fit <- knn3(Card ~ ., data = train)
+    probs <- predict(fit, newdata = test)[, 2]
+    ## Test model on test set (save all k results)
+    diags <- rbind(diags, class_diag(probs, truth, positive = 1))
+}
+summarize_all(diags, mean)
+```
+The AUC found by KNN model was 0.94 and the one found by the cross validation method by running the summarize_all function was found to be 0.872 which again shows that are model is good. 
 
 
 ### Regression/Numeric Prediction
 
 ```{R}
 # regression model code here
+library(rpart)
+library(rpart.plot)
+fit <- rpart(Card ~ ., data = allvar)
+rpart.plot(fit)
+
+fit <- train(Card ~ ., data = allvar, method = "rpart")
+fit$bestTune
+
+rpart.plot(fit$finalModel)
+
+allvar %>% ggplot(aes(Freq12, Dollar24)) + geom_jitter(aes(color = Card))
+
+fit <- lm(Card ~ ., data = allvar)  
+yhat <- predict(fit)  
+mean((allvar$Card - yhat)^2)  
+
 ```
 
 ```{R}
-# cross-validation of regression model here
+# Cross validation
+
+set.seed(1234)
+k = 10  #choose number of folds
+data <- allvar %>% sample_frac()  #randomly order rows
+folds <- cut(seq(1:nrow(allvar)), breaks = k, labels = F)  #create folds
+diags <- NULL
+for (i in 1:k) {
+    train <- data[folds != i, ]
+    test <- data[folds == i, ]
+    ## Fit linear regression model to training set
+    fit <- knnreg(Card ~ ., data = train)
+    ## Get predictions/y-hats on test set (fold i)
+    yhat <- predict(fit, newdata = test)
+    ## Compute prediction error (MSE) for fold i
+    diags <- mean((test$Card - yhat)^2)
+}
+mean(diags)
 ```
 
-Discussion
+First, a classification tree for the numeric variables in the dataset was plotted; the a scatter plot was plotted which showed that as the freq12 increased, the dollar24 also increased. The mean diags was found to be 0.196 
 
 ### Python 
 
 ```{R}
 library(reticulate)
+use_python("/user/bin/python3", required=F)
+py_install("pandas")
 ```
 
 ```{python}
-# python code here
-```
+import pandas as pd
+clothings=r.newclothes
+clothings.loc[0:5,"Freq12":"Dollar24"]
 
-Discussion
+```
+I installed the pandas package and imported it as pd. the, used the "clothings.loc" code to view the first 5 rows of the Freq12, Freq24, Dollar12 and Dollar24 variables.
+
 
 ### Concluding Remarks
 
-Include concluding remarks here, if any
+I found this dataset very interesting and fun to work with. It showed me that customers who own the store credit cards end up spending more and also the frequency of store visits increases. Overall most tests had a high AUC and each showed a strong relation between our variables of interest.
 
 
 
